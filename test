@@ -1,0 +1,86 @@
+
+// Automatically apply coupon to cart for first-time buyers
+// Conditional function: Check if is a paying customer
+function is_paying_customer(){
+    return WC()->customer->get_is_paying_customer();
+}
+
+// Admin counpon pages: Add a new tab
+add_filter('woocommerce_coupon_data_tabs', 'custom_coupon_settings_tab');
+function custom_coupon_settings_tab($tabs) {
+    $tabs['automatic_apply'] = array(
+        'label' => __('Automatic Apply', 'woocommerce'),
+        'target' => 'auto_apply_coupon_data',
+        'class' => 'show_if_coupon',
+    );
+    return $tabs;
+}
+
+// Admin counpon pages: Add fields to the new tab
+add_action('woocommerce_coupon_data_panels', 'custom_coupon_settings_tab_content', 10, 2 );
+function custom_coupon_settings_tab_content( $coupon_id, $coupon ) 
+{
+    echo '<div id="auto_apply_coupon_data" class="panel woocommerce_options_panel">';
+
+    woocommerce_wp_checkbox( array(
+        'id'            => 'auto_apply',
+        'label'         => __('Automatically Apply this Coupon', 'woocommerce'),
+        'desc_tip'      => true,
+        'value'         => $coupon->get_code() === get_option('auto_apply_coupon') ? 'yes' : 'no',
+        'description'   => __('When checked, this coupon will be automatically applied to eligible products without requiring the user to enter the code manually.', 'woocommerce'),
+    ) );
+
+    woocommerce_wp_checkbox( array(
+        'id'            => 'auto_apply_1st_order',
+        'label'         => __('Automatically Apply for First Order', 'woocommerce'),
+        'value'         => $coupon->get_code() === get_option('auto_apply_coupon_1st_order') ? 'yes' : 'no',
+        'desc_tip'      => true,
+        'description'   => __('When checked, this coupon will be automatically applied to the user\'s first order if they meet the coupon\'s eligibility requirements.', 'woocommerce'),
+    ) );
+
+    echo '</div>';
+}
+
+// Admin counpon pages: Save the field values
+add_action( 'woocommerce_coupon_options_save', 'save_custom_coupon_settings', 10, 2 );
+function save_custom_coupon_settings( $post_id, $coupon ) {
+    $coucon_code = $coupon->get_code();
+    if ( isset($_POST['auto_apply']) ) {
+        update_option('auto_apply_coupon', $coucon_code );
+    } elseif( get_option('auto_apply_coupon') === $coucon_code ) {
+        update_option('auto_apply_coupon', '' );
+    }
+    if ( isset($_POST['auto_apply_1st_order']) ) {
+        update_option('auto_apply_coupon_1st_order', $coucon_code );
+    } elseif( get_option('auto_apply_coupon_1st_order') === $coucon_code ) {
+        update_option('auto_apply_coupon_1st_order', '' );
+    }
+}
+
+// Automatically apply coupon that has "auto apply" feature enabled
+add_action('woocommerce_before_calculate_totals', 'apply_coupon_automatically'); 
+function apply_coupon_automatically( $cart ) {
+    if ((is_admin() && !defined('DOING_AJAX')))
+        return;
+
+    if (did_action('woocommerce_before_calculate_totals') >= 2)
+        return;
+
+    // Get coupons with auto apply feature
+    $auto_apply = get_option('auto_apply_coupon'); 
+    $auto_apply_1st_order = get_option('auto_apply_coupon_1st_order');
+    $auto_coupons = array( $auto_apply, $auto_apply_1st_order );
+    $applied_coupons = $cart->get_applied_coupons();
+
+    // Check if an "auto apply" coupon is not already applied to cart
+    if ( count( array_intersect( $applied_coupons, $auto_coupons ) ) === 0 ) {
+        // Check if it's a new customer and for coupon(s) with "auto apply" feature
+        if ( ( ! is_paying_customer() && ! empty($auto_apply_1st_order) ) ) {
+            $cart->apply_coupon( $auto_apply_1st_order );
+        } elseif ( ! empty($auto_apply) && is_paying_customer() ) {
+            $cart->apply_coupon( $auto_apply );
+        }
+    }
+}
+
+
